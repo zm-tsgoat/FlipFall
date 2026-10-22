@@ -1,0 +1,248 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLIPFALL</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#090817;color:white;font-family:Arial,sans-serif;text-align:center}
+header{padding:20px;display:flex;justify-content:space-between;align-items:center}
+.logo{font-size:23px;font-weight:900;letter-spacing:4px}
+.logo span,h1 span{color:#5cf6ff}
+button{cursor:pointer;border:0;border-radius:12px;padding:13px 18px;font-weight:bold;margin:5px}
+.primary{background:linear-gradient(90deg,#5cf6ff,#a58cff);color:#090817}
+.secondary{background:#201d3d;color:white;border:1px solid #494368}
+.screen{padding:35px 15px}
+h1{font-size:clamp(50px,12vw,90px);margin:15px 0;letter-spacing:-5px}
+p{color:#b8b4d8;line-height:1.6}
+#orb{margin:20px auto;width:75px;height:75px;border-radius:50%;background:radial-gradient(circle at 30% 25%,white,#5cf6ff 30%,#5935bd 75%);box-shadow:0 0 45px #5cf6ff88}
+#game{display:block;width:100%;height:65vh;min-height:350px;touch-action:manipulation}
+.hud{display:flex;justify-content:center;gap:20px;padding:10px}
+.hud b{color:#5cf6ff;font-size:23px}
+.panel{max-width:500px;margin:20px auto;padding:20px;border:1px solid #373252;background:#15132b;border-radius:18px}
+.hidden{display:none!important}
+.tabs{display:flex;flex-wrap:wrap;justify-content:center}
+.tab{background:#282444;color:white}
+.tab.active{background:#5cf6ff;color:#090817}
+.small{font-size:12px;color:#aaa5ce}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">FLIP<span>FALL</span></div>
+  <button class="secondary" onclick="showBoards()">🏆 SCORES</button>
+</header>
+
+<section id="home" class="screen">
+  <div id="orb"></div>
+  <p>THE ENDLESS GRAVITY RUNNER</p>
+  <h1>FLIP<span>FALL</span></h1>
+  <p>Flip gravity. Dodge obstacles. Collect crystals.<br>How far can you fall?</p>
+  <button class="primary" onclick="startGame()">▶ START RUN</button>
+  <button class="secondary" onclick="showBoards()">LEADERBOARDS</button>
+  <p>Your best: <b id="homeBest">0</b> m</p>
+</section>
+
+<section id="gameArea" class="hidden">
+  <div class="hud">
+    <div> DISTANCE<br><b id="score">0</b></div>
+    <div> CRYSTALS<br><b id="crystals">0</b></div>
+    <div> BEST<br><b id="best">0</b></div>
+  </div>
+  <canvas id="game"></canvas>
+  <p>Tap, click or press SPACE to flip gravity</p>
+  <button class="secondary" onclick="pauseGame()">PAUSE</button>
+</section>
+
+<section id="boards" class="screen hidden">
+  <div class="panel">
+    <h2>GLOBAL LEADERBOARDS</h2>
+    <div class="tabs">
+      <button class="tab active" onclick="period('Today',this)">Today</button>
+      <button class="tab" onclick="period('Weekly',this)">Weekly</button>
+      <button class="tab" onclick="period('Monthly',this)">Monthly</button>
+      <button class="tab" onclick="period('Yearly',this)">Yearly</button>
+    </div>
+    <h3 id="periodTitle">Today's highest scores</h3>
+    <p id="leaderboard" class="small">Global scores need an online database. No worldwide scores are connected yet.</p>
+    <button class="primary" onclick="goHome()">BACK</button>
+  </div>
+</section>
+
+<section id="result" class="screen hidden">
+  <div class="panel">
+    <h2>RUN OVER</h2>
+    <h1 id="finalScore">0</h1>
+    <p>metres travelled</p>
+    <p>Crystals collected: <b id="finalCrystals">0</b></p>
+    <button class="primary" onclick="startGame()">PLAY AGAIN</button>
+    <button class="secondary" onclick="showBoards()">LEADERBOARDS</button>
+    <button class="secondary" onclick="goHome()">HOME</button>
+  </div>
+</section>
+
+<script>
+const $=id=>document.getElementById(id);
+const canvas=$("game"),ctx=canvas.getContext("2d");
+let W=0,H=0,playing=false,paused=false,raf=0,last=0;
+let player,obstacles,diamonds,score,crystals,speed,gravity,spawn,offset;
+let best=Number(localStorage.getItem("flipfallBest")||0);
+$("homeBest").textContent=best;
+$("best").textContent=best;
+
+function resize(){
+  const r=canvas.getBoundingClientRect();
+  W=r.width;H=r.height;
+  const d=Math.min(devicePixelRatio||1,2);
+  canvas.width=W*d;canvas.height=H*d;
+  ctx.setTransform(d,0,0,d,0,0);
+}
+window.addEventListener("resize",resize);
+
+function hideScreens(){
+  ["home","gameArea","boards","result"].forEach(id=>$(id).classList.add("hidden"));
+}
+function goHome(){
+  playing=false;paused=false;cancelAnimationFrame(raf);
+  hideScreens();$("home").classList.remove("hidden");
+  $("homeBest").textContent=best;
+}
+function startGame(){
+  hideScreens();$("gameArea").classList.remove("hidden");
+  resize();
+  player={x:W*.23,y:H*.5,vy:0,r:12};
+  obstacles=[];diamonds=[];
+  score=0;crystals=0;speed=230;gravity=1;spawn=.6;offset=0;
+  playing=true;paused=false;last=performance.now();
+  $("score").textContent=0;$("crystals").textContent=0;
+  $("best").textContent=best;
+  cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);
+}
+function flip(){
+  if(!playing||paused)return;
+  gravity*=-1;player.vy=gravity*80;
+}
+function addObstacle(){
+  const side=Math.random()<.5?"top":"bottom";
+  obstacles.push({x:W+30,w:25,h:50+Math.random()*100,side});
+  if(Math.random()<.7){
+    diamonds.push({x:W+120,y:100+Math.random()*Math.max(30,H-200),r:7});
+  }
+}
+function loop(now){
+  if(!playing)return;
+  raf=requestAnimationFrame(loop);
+  if(paused){last=now;return;}
+  const dt=Math.min((now-last)/1000,.03);last=now;
+  update(dt);draw();
+}
+function update(dt){
+  score+=speed*dt/12;
+  speed=Math.min(500,230+score*.6);
+  offset+=speed*dt;
+  player.vy+=gravity*900*dt;
+  player.y+=player.vy*dt;
+  spawn-=dt;
+  if(spawn<=0){addObstacle();spawn=Math.max(.7,1.3*230/speed);}
+  if(player.y-player.r<75||player.y+player.r>H-15){endGame();return;}
+
+  for(const o of obstacles){
+    o.x-=speed*dt;
+    const y=o.side==="top"?75:H-15-o.h;
+    if(player.x+player.r>o.x&&player.x-player.r<o.x+o.w&&
+       player.y+player.r>y&&player.y-player.r<y+o.h){
+      endGame();return;
+    }
+  }
+  obstacles=obstacles.filter(o=>o.x+o.w>-10);
+
+  for(const d of diamonds){
+    d.x-=speed*dt;
+    if(Math.hypot(d.x-player.x,d.y-player.y)<d.r+player.r){
+      d.got=true;crystals++;
+    }
+  }
+  diamonds=diamonds.filter(d=>d.x>-10&&!d.got);
+  $("score").textContent=Math.floor(score);
+  $("crystals").textContent=crystals;
+  $("best").textContent=Math.max(best,Math.floor(score));
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,"#211743");bg.addColorStop(1,"#080716");
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+  ctx.strokeStyle="#51447c";ctx.globalAlpha=.35;
+  for(let x=-(offset%45);x<W;x+=45){
+    ctx.beginPath();ctx.moveTo(x,75);ctx.lineTo(x,H-15);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  ctx.fillStyle="#5cf6ff";ctx.fillRect(0,73,W,2);
+  ctx.fillStyle="#ff4fbd";ctx.fillRect(0,H-15,W,2);
+
+  for(const o of obstacles){
+    const y=o.side==="top"?75:H-15-o.h;
+    ctx.shadowBlur=15;ctx.shadowColor=o.side==="top"?"#ff4fbd":"#9b72ff";
+    ctx.fillStyle=o.side==="top"?"#ff4fbd":"#9b72ff";
+    ctx.fillRect(o.x,y,o.w,o.h);
+  }
+  ctx.shadowBlur=15;ctx.shadowColor="#5cf6ff";
+  for(const d of diamonds){
+    ctx.fillStyle="#5cf6ff";ctx.beginPath();
+    ctx.moveTo(d.x,d.y-d.r);ctx.lineTo(d.x+d.r,d.y);
+    ctx.lineTo(d.x,d.y+d.r);ctx.lineTo(d.x-d.r,d.y);
+    ctx.closePath();ctx.fill();
+  }
+  const orb=ctx.createRadialGradient(player.x-4,player.y-5,1,player.x,player.y,player.r*1.5);
+  orb.addColorStop(0,"white");orb.addColorStop(.3,"#5cf6ff");orb.addColorStop(1,"#5940bd");
+  ctx.fillStyle=orb;ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);ctx.fill();
+  ctx.shadowBlur=0;
+}
+function endGame(){
+  playing=false;cancelAnimationFrame(raf);
+  const s=Math.floor(score);
+  best=Math.max(best,s);
+  localStorage.setItem("flipfallBest",best);
+  $("homeBest").textContent=best;
+  $("finalScore").textContent=s;
+  $("finalCrystals").textContent=crystals;
+  hideScreens();$("result").classList.remove("hidden");
+}
+function pauseGame(){
+  if(!playing)return;
+  paused=!paused;
+  if(paused){
+    $("leaderboard").textContent="Game paused. Press RESUME to continue.";
+    hideScreens();$("boards").classList.remove("hidden");
+    $("periodTitle").textContent="PAUSED";
+    $("leaderboard").innerHTML='<button class="primary" onclick="resumeGame()">RESUME</button>';
+  }else last=performance.now();
+}
+function resumeGame(){
+  hideScreens();$("gameArea").classList.remove("hidden");
+  paused=false;last=performance.now();
+}
+function showBoards(){
+  playing=false;hideScreens();$("boards").classList.remove("hidden");
+  $("periodTitle").textContent="Today's highest scores";
+  $("leaderboard").textContent="Global scores need an online database. This standalone version cannot yet read scores from other players.";
+}
+function period(name,button){
+  document.querySelectorAll(".tab").forEach(b=>b.classList.remove("active"));
+  button.classList.add("active");
+  $("periodTitle").textContent=name+"'s highest scores";
+  $("leaderboard").textContent="The "+name.toLowerCase()+" global leaderboard needs an online database connection.";
+}
+canvas.addEventListener("pointerdown",e=>{e.preventDefault();flip();});
+window.addEventListener("keydown",e=>{
+  if(e.code==="Space"||e.code==="ArrowUp"||e.code==="ArrowDown"){
+    e.preventDefault();flip();
+  }
+  if(e.code==="Escape"&&playing)pauseGame();
+});
+</script>
+</body>
+</html>
